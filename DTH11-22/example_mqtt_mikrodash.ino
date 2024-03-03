@@ -11,190 +11,120 @@
  * Librerias de WiFi y utilidades para publicar en MQTT
 */
 
-#include <ESP8266WiFi.h>  //https://github.com/esp8266/Arduino
-#include <PubSubClient.h> //https://github.com/knolleary/pubsubclient
-#include <Arduino_JSON.h> //https://github.com/arduino-libraries/Arduino_JSON
+#include <ESP8266WiFi.h>  // Biblioteca para WiFi en ESP8266
+#include <PubSubClient.h> // Biblioteca para cliente MQTT
 
-/**
- * 
- * Para la pantalla OLED
- * 
- */
-#include <SPI.h>
+// Inclusión de bibliotecas para la pantalla OLED
 #include <Wire.h>
-#include <Adafruit_SSD1306.h> //https://github.com/adafruit/Adafruit_SSD1306
+#include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
-#include <Fonts/FreeSerif9pt7b.h>
 
-// Definir constantes
-#define ANCHO_PANTALLA 128 // ancho pantalla OLED
-#define ALTO_PANTALLA 64 // alto pantalla OLED
-// Objeto de la clase Adafruit_SSD1306
-Adafruit_SSD1306 display(ANCHO_PANTALLA, ALTO_PANTALLA, &Wire, -1);
+// Definición de las dimensiones de la pantalla OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
 
-//Para el sensor de Temperatura DHT11 y DHT22
-#include "DHTesp.h" // http://librarymanager/All#DHTesp
+// Creación del objeto display para la pantalla OLED
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-#ifdef ESP32
-#pragma message(EXAMPLE FOR ESP8266 ON MIKRODASH!)
-#error Select ESP8266 board.
-#endif
+// Inclusión de la biblioteca para el sensor DHT
+#include "DHTesp.h"
 
 DHTesp dht;
 
-//PINES DE ENTRADA
+// Definición de pines
 #define PIN_TEMP 2
 #define PIN_SDA 4
 #define PIN_SCL 5
 
-//Topics MQTT
-const char* topic_temp = "633e10ed88f0474c858f6618/temperatura";
-const char* topic_hum = "633e10ed88f0474c858f6618/humedad";
-// Constantes de configuracion
-const char* ssid = "NoInternetAccess";              //Nombre Red Wi-Fi
-const char* password = "F49D4FEC9MUa8gfF";           //Contrasenia Red Wi-Fi
-const char* mqtt_server = "mqtt.mikrodash.com"; //Servidor MQTT
-const int mqtt_port = 1883;                     //Puerto MQTT
-const int qos_level=1;                          //Calidad del servicio MQTT
-#define MSG_BUFFER_SIZE  (70)
-char msg[MSG_BUFFER_SIZE];
+// Tópicos MQTT (reemplaza "your_mikrodash_id" por tu ID real de MikroDash)
+const char* topic_temp = "your_mikrodash_id/temperatura/value";
+const char* topic_hum = "your_mikrodash_id/humedad/value";
 
-#define MINUTES 15
-#define WAIT_MIN (1000UL * 60 * MINUTES)
-unsigned long rolltime = millis() + WAIT_MIN;
+// Configuración de la red WiFi y servidor MQTT
+const char* ssid = "your_wifi_ssid";          // Nombre de la red WiFi
+const char* password = "your_wifi_password";  // Contraseña de la red WiFi
+const char* mqtt_server = "mqtt.mikrodash.com"; // Servidor MQTT
+const int mqtt_port = 1883;                    // Puerto MQTT
+const char* mqtt_user = "your_mqtt_username";  // Usuario MQTT
+const char* mqtt_password = "your_mqtt_password"; // Contraseña MQTT
 
-//Variables para la conexión y envio de mensajes MQTT
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-//Conexion Wi-Fi
 void setup_wifi() {
-
-  delay(10);
-  // We start by connecting to a WiFi network
-  Serial.println();
   Serial.print("Conectando a ");
   Serial.println(ssid);
-
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
-  randomSeed(micros());
-
-  Serial.println("");
-  Serial.println("WiFi Conectado");
-  Serial.println("Direccion IP: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("WiFi conectado");
+  Serial.println("Dirección IP: " + WiFi.localIP().toString());
 }
 
-// Funcion para reconectar
 void reconnect() {
   while (!client.connected()) {
-    Serial.print("Conectando al broker MQTT...");
-    // Se genera un ID aleatorio con
-    String clientId = "MikroDashWiFiClient-";
-    clientId += String(random(0xffff), HEX);
-
-    //Cuando se conecta
-    if (client.connect(clientId.c_str())) {
+    Serial.print("Intentando conexión MQTT...");
+    if (client.connect("ESPClient", mqtt_user, mqtt_password)) {
       Serial.println("Conectado");
-
-      //Topics a los que se suscribira para recibir cambios
-      //client.subscribe(topic_pwm,qos_level);
-      //client.subscribe(topic_led,qos_level);
+      // Aquí puedes suscribirte a tópicos si lo necesitas
     } else {
-      Serial.print("Error al conectar: ");
+      Serial.print("falló, rc=");
       Serial.print(client.state());
-      Serial.println(" Reintentando en 5 segundos...");
+      Serial.println(" intentando de nuevo en 5 segundos");
       delay(5000);
     }
   }
 }
 
-void setup()
-{
-  delay(10);
-  Serial.begin(9600);      //Comunicación serial para monitorear
-  setup_wifi();               //Se llama la funcición para conectarse al Wi-Fi
-  client.setServer(mqtt_server, mqtt_port);  //Se indica el servidor y puerto de MQTT para conectarse
-  
-  String thisBoard= ARDUINO_BOARD;
-  Serial.println(thisBoard);
-  dht.setup(PIN_TEMP, DHTesp::DHT11); // Cambiar DHT11 por DHT22 sino obtienes datos
+void setup() {
+  Serial.begin(115200);
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+
+  dht.setup(PIN_TEMP, DHTesp::DHT11); // Cambiar DHT11 por DHT22 si necesario
 
   Wire.begin(PIN_SDA, PIN_SCL);
-  // Iniciar pantalla OLED en la dirección 0x3C/D
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("No se encuentra la pantalla OLED");
+    for(;;); // Bucle infinito
   }
+
+  // Configuración inicial de la pantalla OLED
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
 }
 
-bool first = true;
-void loop()
-{
-  if (!client.connected()) { //Si se detecta que no hay conexión con el broker 
-    reconnect();              //Reintenta la conexión
+void loop() {
+  if (!client.connected()) {
+    reconnect();
   }
-  //client.loop();            //De lo contrario crea un bucle para las suscripciones MQTT
+  client.loop();
 
-  if((long)(millis() - rolltime) >= 0 || first) {
-    delay(dht.getMinimumSamplingPeriod());
-
+  // Publica lecturas del sensor DHT cada 15 minutos
+  static unsigned long lastPublish = 0;
+  if (millis() - lastPublish > WAIT_MIN || lastPublish == 0) {
     float temperature = dht.getTemperature();
     float humidity = dht.getHumidity();
 
-    setTextOled(temperature, humidity);
-    Serial.print(dht.getStatusString());
-    Serial.print("\t");
-    Serial.print(humidity, 1);
-    Serial.print("\t\t");
-    Serial.print(temperature, 1);
-    Serial.print("\t\t");
-    Serial.print(dht.toFahrenheit(temperature), 1);
-    Serial.print("\t\t");
-    Serial.print(dht.computeHeatIndex(temperature, humidity, false), 1);
-    Serial.print("\t\t");
-    Serial.println(dht.computeHeatIndex(dht.toFahrenheit(temperature), humidity, true), 1);
-  
-    String tempString = "";     // empty string
-    tempString.concat(temperature);
-    sprintf(msg, "{\"from\":\"device\",\"message\":\"Temperatura\",\"save\":true,\"value\": %s}", tempString);
-    client.publish(topic_temp, msg, true); //Se actualiza el nuevo estado en el topic
-  
-    String humString = "";     // empty string
-    humString.concat(humidity);
-    sprintf(msg, "{\"from\":\"device\",\"message\":\"Humedad\",\"save\":true,\"value\": %s}", humString);
-    client.publish(topic_hum, msg, true); //Se actualiza el nuevo estado en el topic
+    if (!isnan(temperature) && !isnan(humidity)) { // Verifica si las lecturas son válidas
+      char tempStr[8], humStr[8];
+      dtostrf(temperature, 1, 2, tempStr);
+      dtostrf(humidity, 1, 2, humStr);
 
-    rolltime += WAIT_MIN;
-    first = false;
+      client.publish(topic_temp, tempStr);
+      client.publish(topic_hum, humStr);
+
+      // Actualiza la pantalla OLED
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Temperatura: " + String(temperature) + " C");
+      display.println("Humedad: " + String(humidity) + " %");
+      display.display();
+    }
+    lastPublish = millis();
   }
-
-}
-
-void setTextOled(float temp, float hum){
-  // Limpiar buffer
-  display.clearDisplay();
-  // Tamaño del texto
-  display.setFont(&FreeSerif9pt7b);
-  //display.setTextSize(1);
-  // Color del texto
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 20);
-  display.print("Temp: ");
-  display.print(temp);
-  display.drawCircle(96, 10, 2, WHITE);
-  //display.write(167);
-  display.println(" C");
-  display.setCursor(0, 50);
-  display.print("Hume: ");
-  display.print(hum);
-  display.println("%");
-  // Enviar a pantalla
-  display.display();
 }
